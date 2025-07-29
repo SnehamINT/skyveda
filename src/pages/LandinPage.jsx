@@ -1,0 +1,349 @@
+import React, { useEffect, useState, useRef } from 'react';
+import Autosuggest from 'react-autosuggest';
+import { fetchWeatherData, fetchBackgroundImage } from '../api/api';
+
+const DEFAULT_CITY = 'Kolkata';
+const OPENWEATHERMAP_API_KEY = '2fb5592767310d79cc86192b47977054'; // <-- Replace with your actual API key
+
+const WeatherIcon = ({ icon, alt }) => (
+  <img src={`https://openweathermap.org/img/wn/${icon}@2x.png`} alt={alt} className="w-10 h-10 inline-block align-middle" />
+);
+
+const LandingPage = () => {
+  const [weather, setWeather] = useState(null);
+  const [bgUrl, setBgUrl] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [modalError, setModalError] = useState('');
+  const [isDark, setIsDark] = useState(false); // Day/Night mode
+  const [search, setSearch] = useState('');
+  const [city, setCity] = useState('');
+  const [suggestions, setSuggestions] = useState([]);
+  const [isFetchingSuggestions, setIsFetchingSuggestions] = useState(false);
+  const [showModal, setShowModal] = useState(false);
+  const debounceTimeout = useRef();
+  const searchInputRef = useRef(null);
+
+  // On mount: detect city or use localStorage
+  useEffect(() => {
+    const storedCity = localStorage.getItem('selectedCity');
+    if (storedCity) {
+      setCity(storedCity);
+      setSearch(storedCity);
+    } else {
+      // Detect city using geolocation API
+      fetch('https://ip-api.com/json')
+        .then(res => res.json())
+        .then(data => {
+          const detectedCity = data.city || DEFAULT_CITY;
+          setCity(detectedCity);
+          setSearch(detectedCity);
+          localStorage.setItem('selectedCity', detectedCity);
+        })
+        .catch(() => {
+          setCity(DEFAULT_CITY);
+          setSearch(DEFAULT_CITY);
+          localStorage.setItem('selectedCity', DEFAULT_CITY);
+        });
+    }
+  }, []);
+
+  useEffect(() => {
+    async function fetchData() {
+      setLoading(true);
+      setError(null);
+      setModalError('');
+      try {
+        const weatherData = await fetchWeatherData(city);
+        setWeather(weatherData);
+      } catch (err) {
+        setError('Failed to load weather');
+        setModalError('City not found. Please try another city.');
+        setShowModal(true);
+        setLoading(false);
+        return;
+      }
+      setLoading(false);
+    }
+    if (city) fetchData();
+  }, [city]);
+
+  // Fetch background image when weather changes
+  useEffect(() => {
+    async function fetchBg() {
+      let keyword = 'weather';
+      if (weather) {
+        keyword = weather?.list[0]?.weather[0]?.description || 'weather';
+      }
+      try {
+        const bgData = await fetchBackgroundImage(keyword);
+        setBgUrl(bgData.urls?.regular || '');
+      } catch (err) {
+        setBgUrl('');
+      }
+    }
+    if (weather) fetchBg();
+  }, [weather]);
+
+  useEffect(() => {
+    if (showModal && searchInputRef.current) {
+      searchInputRef.current.focus();
+    }
+  }, [showModal]);
+
+  const handleSearch = (e) => {
+    e.preventDefault();
+    if (search.trim()) {
+      setCity(search.trim());
+      localStorage.setItem('selectedCity', search.trim());
+    }
+  };
+
+  // Autosuggest handlers for OpenWeatherMap Geocoding API
+  const getSuggestionValue = suggestion => suggestion.displayName;
+
+  const renderSuggestion = suggestion => (
+    <div className="px-2 py-1 cursor-pointer hover:bg-primary/20">
+      {suggestion.displayName}
+    </div>
+  );
+
+  const onSuggestionsFetchRequested = ({ value }) => {
+    if (debounceTimeout.current) clearTimeout(debounceTimeout.current);
+    if (!value || typeof value !== 'string' || value.trim().length < 2) {
+      setSuggestions([]);
+      return;
+    }
+    setIsFetchingSuggestions(true);
+    debounceTimeout.current = setTimeout(async () => {
+      try {
+        const res = await fetch(`https://api.openweathermap.org/geo/1.0/direct?q=${encodeURIComponent(value)}&limit=5&appid=${OPENWEATHERMAP_API_KEY}`);
+        const data = await res.json();
+        const formatted = Array.isArray(data)
+          ? data.map(item => ({
+              displayName: `${item.name}${item.state ? ', ' + item.state : ''}, ${item.country}`,
+              name: item.name,
+              country: item.country,
+              state: item.state,
+              lat: item.lat,
+              lon: item.lon,
+            }))
+          : [];
+        setSuggestions(formatted);
+      } catch (e) {
+        setSuggestions([]);
+      } finally {
+        setIsFetchingSuggestions(false);
+      }
+    }, 400);
+  };
+
+  const onSuggestionsClearRequested = () => {
+    setSuggestions([]);
+  };
+
+  const onSuggestionSelected = (event, { suggestion }) => {
+    setSearch(suggestion.displayName);
+    setCity(suggestion.displayName);
+    localStorage.setItem('selectedCity', suggestion.displayName);
+  };
+
+  // Helper to get today's, hourly, and 5-day forecast
+  const getForecasts = () => {
+    if (!weather) return { today: null, hourly: [], daily: [] };
+    const today = weather.list[0];
+    const hourly = weather.list.slice(0, 6); // next 6 x 3h = 18h
+    // Group by day
+    const days = {};
+    weather.list.forEach(item => {
+      const date = item.dt_txt.split(' ')[0];
+      if (!days[date]) days[date] = [];
+      days[date].push(item);
+    });
+    const daily = Object.values(days).slice(0, 5).map(dayArr => {
+      const temps = dayArr.map(d => d.main.temp);
+      const min = Math.min(...temps);
+      const max = Math.max(...temps);
+      return {
+        ...dayArr[0],
+        min,
+        max,
+        icon: dayArr[0].weather[0].icon,
+        desc: dayArr[0].weather[0].main,
+      };
+    });
+    return { today, hourly, daily };
+  };
+
+  const { today, hourly, daily } = getForecasts();
+
+  return (
+    <div
+      className={`min-h-screen flex items-center justify-center relative overflow-hidden ${isDark ? 'bg-gray-900' : 'bg-blue-100'}`}
+      style={{
+        backgroundImage: bgUrl ? `url(${bgUrl})` : undefined,
+        backgroundSize: 'cover',
+        backgroundPosition: 'center',
+        transition: 'background-image 0.5s',
+      }}
+    >
+      {/* Modal for city search */}
+      {showModal && (
+        <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setShowModal(false)}>
+          <div className={`relative ${isDark ? 'bg-gray': 'bg-white'} rounded-sm shadow-2xl p-6 w-full max-w-md ${isDark ? 'bg-gray-900 text-white' : 'bg-white text-gray-900'}`} onClick={e => e.stopPropagation()}>
+            {/* <button
+              className="absolute top-0 right-2 text-lg font-bold hover:opacity-70 focus:outline-none"
+              onClick={() => setShowModal(false)}
+              title="Close"
+            >
+              ×
+            </button> */}
+            {modalError && (
+              <div className="mb-4 text-sm text-red-500 font-semibold text-center">{modalError}</div>
+            )}
+            <form onSubmit={e => { handleSearch(e); setShowModal(false); }} className="flex gap-2 w-full relative">
+              <Autosuggest
+                suggestions={suggestions}
+                onSuggestionsFetchRequested={onSuggestionsFetchRequested}
+                onSuggestionsClearRequested={onSuggestionsClearRequested}
+                getSuggestionValue={getSuggestionValue}
+                renderSuggestion={renderSuggestion}
+                onSuggestionSelected={(event, data) => { onSuggestionSelected(event, data); setShowModal(false); }}
+                inputProps={{
+                  value: typeof search === 'string' ? search : '',
+                  onChange: (e, { newValue }) => setSearch(newValue || ''),
+                  placeholder: 'Search city...',
+                  className: `rounded-sm px-3 py-1 w-full outline-none border ${isDark ? 'bg-gray-800 text-white border-gray-700' : 'bg-white text-gray-900 border-gray-300'} focus:ring-2 focus:ring-primary z-[999] `,
+                  autoComplete: 'off',
+                  ref: searchInputRef,
+                }}
+                theme={{
+                  container: 'w-full',
+                  suggestionsContainer: `absolute w-full mt-2 p-2 rounded-sm shadow-md  z-[999] ${isDark ? 'bg-gray bg-gray-900 text-white' : 'bg-white text-gray-900'}`,
+                  suggestion: '',
+                  suggestionHighlighted: 'bg-primary/20',
+                }}
+              />
+               {/* <button type="submit" className={`px-3 py-1 rounded-sm font-semibold ${isDark ? 'bg-gray-700 text-white' : 'bg-blue-500 text-white'} hover:opacity-80 transition`}>
+                  Apply
+               </button> */}
+            </form>
+          </div>
+        </div>
+      )}
+        <div className="custom_logo absolute top-4 left-4 z-99">
+          <img src="./logo-icon.png" alt="Logo Icon" />
+          <h3 className='text-primary uppercase font-bold'>Skyveda</h3>
+        </div>
+        {/* Day/Night Toggle */}
+        <button
+          className="absolute top-4 right-4 text-2xl focus:outline-none cursor-pointer z-99"
+          onClick={() => setIsDark((d) => !d)}
+          title={isDark ? 'Switch to Day Mode' : 'Switch to Night Mode'}
+        >
+          {isDark ? '🌞' : '🌙'}
+        </button>
+      <div className={`absolute inset-0 ${isDark ? 'bg-black/40' : 'bg-white/40'} z-0`} />
+      <div className={`relative main_card  mt-18 md:mt-0 z-10 w-full max-w-4xl mx-auto p-8 rounded-3xl shadow-2xl backdrop-blur-sm ${isDark ? 'bg-black/40 text-white' : 'bg-white/40 text-gray-900'} flex flex-col md:flex-row gap-8`}>
+        {/* Search Bar with Autosuggest */}
+        
+        {/* Left: Main Weather */}
+        <div className="flex-1 flex flex-col justify-between min-w-[250px]">
+          <div>
+            {/* City Info */}
+            {weather && weather.city && (
+              <div className={`text-xs mb-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                <span className="font-semibold">{weather.city.name}, {weather.city.country}</span>
+                <span className="ml-2">(Pop: {weather.city.population.toLocaleString()})</span>
+                <span className="ml-2">[{weather.city.coord.lat}, {weather.city.coord.lon}]</span>
+              </div>
+            )}
+            <div className="text-xs mb-8">weather.com</div>
+            {loading ? (
+              <div className="text-lg">Loading...</div>
+            ) : error ? (
+              <div className="text-red-400">{error}</div>
+            ) : today ? (
+              <>
+                <div className="flex items-center gap-4">
+                  <span className="text-7xl font-bold">{Math.round(today.main.temp)}<span className="text-2xl align-top">°C</span></span>
+                  <WeatherIcon icon={today.weather[0].icon} alt={today.weather[0].main} />
+                </div>
+                <div className={`text-2xl font-semibold mt-2 mb-1 flex items-center gap-2 ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                  {city}
+                  <button
+                    className="ml-2 text-base hover:opacity-80 focus:outline-none cursor-pointer"
+                    title="Edit or Change city"
+                    onClick={() => {
+                      setShowModal(true);
+                      setSearch('');
+                    }}
+                  >
+                    ✏️
+                  </button>
+                </div>
+                <div className="text-sm">
+                  {today.dt_txt.slice(11, 16)} | H:{Math.round(today.main.temp_max)}° L:{Math.round(today.main.temp_min)}°
+                </div>
+                {/* More Weather Details */}
+                <div className={`mt-4 text-xs space-y-1 ${isDark ? 'text-gray-200' : 'text-gray-800'}`}>
+                  <div>Condition: <span className="font-semibold">{today.weather[0].main} ({today.weather[0].description})</span></div>
+                  <div>Humidity: <span className="font-semibold">{today.main.humidity}%</span></div>
+                  <div>Wind: <span className="font-semibold">{today.wind.speed} m/s</span></div>
+                  <div>Pressure: <span className="font-semibold">{today.main.pressure} hPa</span></div>
+                </div>
+                {/* Footer under weather details */}
+                <div className="mt-4 text-xs text-left text-gray-400 flex items-center gap-2">
+                  Made by <span className="font-semibold">Sneham Basak</span>
+                  <a
+                    href="https://www.linkedin.com/in/sneham-basak-358a4b227/"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="underline hover:text-blue-400 ml-1"
+                  >
+                    LinkedIn
+                  </a>
+                </div>
+              </>
+            ) : null}
+          </div>
+        </div>
+        {/* Right: Forecasts */}
+        <div className="flex-1 flex flex-col gap-6">
+          {/* Hourly Forecast */}
+          <div className={`${isDark ? 'bg-black/60 text-white' : 'bg-gray/10 text-gray-900'} backdrop-blur-sm  rounded-xl p-4 mb-2`}>
+            <div className="text-sm mb-2">Thunderstorms expected around {hourly[0]?.dt_txt?.slice(11, 16) || '--:--'}</div>
+            <div className="flex items-center gap-4 overflow-x-auto">
+              {hourly.map((h, i) => (
+                <div key={i} className="flex flex-col items-center min-w-[48px]">
+                  <span className={`text-xs ${i === 0 ? 'text-primary' : ''}`}>{i === 0 ? 'Now' : h.dt_txt.slice(11, 13)}</span>
+                  <WeatherIcon icon={h.weather[0].icon} alt={h.weather[0].main} />
+                  <span className="text-xs">{Math.round(h.main.temp)}°C</span>
+                </div>
+              ))}
+            </div>
+          </div>
+          {/* 5-Day Forecast */}
+          <div className={`${isDark ? 'bg-black/20 text-white' : 'bg-white/0 text-gray-900'} backdrop-blur-sm rounded-xl p-4`}>
+            <div className="text-sm mb-2">5-Day Forecast</div>
+            <div className="divide-y divide-gray-200">
+              {daily.map((d, i) => (
+                <div key={i} className="flex items-center py-2 gap-2">
+                  <span className="w-16 capitalize text-xs">{i === 0 ? 'Today' : new Date(d.dt_txt).toLocaleDateString('en-US', { weekday: 'short' })}</span>
+                  <WeatherIcon icon={d.icon} alt={d.desc} />
+                  <span className="text-xs w-8">{Math.round(d.min)}°C</span>
+                  <div className="flex-1 mx-2">
+                    <progress className="progress progress-primary w-full h-2" value={d.max - d.min} max="20"></progress>
+                  </div>
+                  <span className="text-xs w-8 text-right">{Math.round(d.max)}°C</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default LandingPage;

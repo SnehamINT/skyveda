@@ -1,0 +1,32 @@
+@import "tailwindcss";
+@plugin "daisyui";
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+
+body {
+  font-family: 'Inter', 'sans-serif';
+}
+
+
+.custom_logo {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.custom_logo img {
+  width: 40px;
+
+}
+.custom_logo h3 {
+  font-size: 30px;
+  font-weight: 800;
+}
+
+@media only screen and (max-height: 710px){
+
+  .main_card {
+    margin-top: 70px!important;
+  }
+}
