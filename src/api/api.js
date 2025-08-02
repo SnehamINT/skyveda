@@ -24,7 +24,13 @@ export async function fetchCurrentWeather(city) {
 
 // Fetch a background image from Unsplash
 export async function fetchBackgroundImage(query = 'weather, nature, rain') {
-  const url = `${UNSPLASH_BASE_URL}/photos/random?query=${encodeURIComponent(query)}&orientation=landscape&client_id=${UNSPLASH_ACCESS_KEY}`;
+  // Clean and format the query for better search results
+  const cleanQuery = query
+    .replace(/[^\w\s,]/g, '') // Remove special characters except spaces and commas
+    .replace(/\s+/g, ' ') // Replace multiple spaces with single space
+    .trim();
+  
+  const url = `${UNSPLASH_BASE_URL}/photos/random?query=${encodeURIComponent(cleanQuery)}&orientation=landscape&client_id=${UNSPLASH_ACCESS_KEY}`;
   const res = await fetch(url);
   if (!res.ok) throw new Error('Failed to fetch background image');
   return res.json();

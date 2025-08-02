@@ -26,6 +26,7 @@ const LandingPage = () => {
   const [currentWeather, setCurrentWeather] = useState(null);
   const [timezone, setTimezone] = useState(null);
   const [cityTime, setCityTime] = useState(new Date());
+  const [currentBgSearch, setCurrentBgSearch] = useState('');
   const debounceTimeout = useRef();
   const searchInputRef = useRef(null);
   const timeIntervalRef = useRef(null);
@@ -201,18 +202,65 @@ const LandingPage = () => {
   useEffect(() => {
     async function fetchBg() {
       let keyword = 'weather';
-      if (currentWeather) {
+      if (currentWeather && city) {
+        // Combine city name and weather condition for more authentic backgrounds
+        const weatherDesc = currentWeather?.weather[0]?.description || 'weather';
+        const cityName = city.split(',')[0].trim(); // Get just the city name, not the full location
+        
+        // Add more specific search terms for better results
+        const weatherMain = currentWeather?.weather[0]?.main?.toLowerCase();
+        
+        // Create more specific search terms based on weather type
+        if (weatherMain === 'rain' || weatherMain === 'drizzle') {
+          keyword = `${cityName} rainy city`;
+        } else if (weatherMain === 'snow') {
+          keyword = `${cityName} snowy city`;
+        } else if (weatherMain === 'clear') {
+          keyword = `${cityName} sunny city`;
+        } else if (weatherMain === 'clouds') {
+          keyword = `${cityName} cloudy city`;
+        } else if (weatherMain === 'thunderstorm') {
+          keyword = `${cityName} storm`;
+        } else {
+          keyword = `${cityName} ${weatherDesc}`;
+        }
+      } else if (currentWeather) {
         keyword = currentWeather?.weather[0]?.description || 'weather';
+      } else if (city) {
+        const cityName = city.split(',')[0].trim();
+        keyword = `${cityName} weather`;
       }
+      
+      setCurrentBgSearch(keyword);
+      
       try {
         const bgData = await fetchBackgroundImage(keyword);
-        setBgUrl(bgData.urls?.regular || '');
+        if (bgData && bgData.urls && bgData.urls.regular) {
+          setBgUrl(bgData.urls.regular);
+        } else {
+          throw new Error('No background image data received');
+        }
       } catch (err) {
-        setBgUrl('');
+        console.log('Background search failed for:', keyword, err.message);
+        // Fallback to generic weather background if city-specific search fails
+        try {
+          const fallbackKeyword = currentWeather?.weather[0]?.description || 'weather';
+          setCurrentBgSearch(fallbackKeyword);
+          const bgData = await fetchBackgroundImage(fallbackKeyword);
+          if (bgData && bgData.urls && bgData.urls.regular) {
+            setBgUrl(bgData.urls.regular);
+          } else {
+            throw new Error('No fallback background image data received');
+          }
+        } catch (fallbackErr) {
+          console.log('Fallback background search also failed:', fallbackErr.message);
+          setBgUrl('');
+          setCurrentBgSearch('');
+        }
       }
     }
-    if (currentWeather) fetchBg();
-  }, [currentWeather]);
+    if (currentWeather || city) fetchBg();
+  }, [currentWeather, city]);
 
   useEffect(() => {
     if (showModal && searchInputRef.current) {
@@ -404,6 +452,7 @@ const LandingPage = () => {
         backgroundImage: bgUrl ? `url(${bgUrl})` : undefined,
         backgroundSize: 'cover',
         backgroundPosition: 'center',
+        backgroundRepeat: 'no-repeat',
         transition: 'background-image 0.5s',
       }}
     >
@@ -525,6 +574,12 @@ const LandingPage = () => {
                     LinkedIn
                   </a>
                 </div>
+                {/* Background search indicator */}
+                {currentBgSearch && (
+                  <div className="mt-2 text-xs text-gray-500 italic">
+                    Background: "{currentBgSearch}"
+                  </div>
+                )}
               </>
             ) : null}
           </div>
