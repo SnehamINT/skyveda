@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import Autosuggest from 'react-autosuggest';
-import { fetchWeatherData, fetchBackgroundImage } from '../api/api';
+import { fetchWeatherData, fetchCurrentWeather, fetchBackgroundImage } from '../api/api';
 
 const DEFAULT_CITY = 'Kolkata';
 const OPENWEATHERMAP_API_KEY = '2fb5592767310d79cc86192b47977054'; // <-- Replace with your actual API key
@@ -11,6 +11,7 @@ const WeatherIcon = ({ icon, alt }) => (
 
 const LandingPage = () => {
   const [weather, setWeather] = useState(null);
+  const [currentWeatherData, setCurrentWeatherData] = useState(null);
   const [bgUrl, setBgUrl] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -21,8 +22,102 @@ const LandingPage = () => {
   const [suggestions, setSuggestions] = useState([]);
   const [isFetchingSuggestions, setIsFetchingSuggestions] = useState(false);
   const [showModal, setShowModal] = useState(false);
+  const [currentTime, setCurrentTime] = useState(new Date());
+  const [currentWeather, setCurrentWeather] = useState(null);
+  const [timezone, setTimezone] = useState(null);
+  const [cityTime, setCityTime] = useState(new Date());
   const debounceTimeout = useRef();
   const searchInputRef = useRef(null);
+  const timeIntervalRef = useRef(null);
+
+  // Convert timezone offset (in seconds) to timezone name
+  const getTimezoneName = (offsetSeconds) => {
+    const offsetHours = offsetSeconds / 3600;
+    
+    // Common timezone mappings based on offset
+    const timezoneMap = {
+      '-12': 'Pacific/Kwajalein',
+      '-11': 'Pacific/Samoa',
+      '-10': 'Pacific/Honolulu',
+      '-9': 'America/Anchorage',
+      '-8': 'America/Los_Angeles',
+      '-7': 'America/Denver',
+      '-6': 'America/Chicago',
+      '-5': 'America/New_York',
+      '-4': 'America/Halifax',
+      '-3': 'America/Sao_Paulo',
+      '-2': 'Atlantic/South_Georgia',
+      '-1': 'Atlantic/Azores',
+      '0': 'Europe/London',
+      '1': 'Europe/Paris',
+      '2': 'Europe/Kiev',
+      '3': 'Europe/Moscow',
+      '4': 'Asia/Dubai',
+      '5': 'Asia/Karachi',
+      '5.5': 'Asia/Kolkata',
+      '6': 'Asia/Dhaka',
+      '7': 'Asia/Bangkok',
+      '8': 'Asia/Shanghai',
+      '9': 'Asia/Tokyo',
+      '10': 'Australia/Sydney',
+      '11': 'Pacific/Guadalcanal',
+      '12': 'Pacific/Auckland'
+    };
+    
+    return timezoneMap[offsetHours.toString()] || 'UTC';
+  };
+
+  // Update current time every minute
+  useEffect(() => {
+    const updateTime = () => {
+      const now = new Date();
+      setCurrentTime(now);
+      
+      // Update city time if timezone is available
+      if (timezone) {
+        try {
+          const timezoneName = getTimezoneName(timezone);
+          // Convert current time to city's timezone
+          const cityTimeString = now.toLocaleString('en-US', {
+            timeZone: timezoneName
+          });
+          setCityTime(new Date(cityTimeString));
+        } catch (error) {
+          setCityTime(now);
+        }
+      } else {
+        setCityTime(now);
+      }
+    };
+    
+    // Update immediately
+    updateTime();
+    
+    // Update every minute
+    timeIntervalRef.current = setInterval(updateTime, 60000);
+    
+    return () => {
+      if (timeIntervalRef.current) {
+        clearInterval(timeIntervalRef.current);
+      }
+    };
+  }, [timezone]);
+
+  // Update city time when timezone changes
+  useEffect(() => {
+    if (timezone) {
+      try {
+        const now = new Date();
+        const timezoneName = getTimezoneName(timezone);
+        const cityTimeString = now.toLocaleString('en-US', {
+          timeZone: timezoneName
+        });
+        setCityTime(new Date(cityTimeString));
+      } catch (error) {
+        setCityTime(new Date());
+      }
+    }
+  }, [timezone]);
 
   // On mount: detect city or use localStorage
   useEffect(() => {
@@ -54,8 +149,20 @@ const LandingPage = () => {
       setError(null);
       setModalError('');
       try {
-        const weatherData = await fetchWeatherData(city);
+        // Fetch both current weather and forecast
+        const [weatherData, currentData] = await Promise.all([
+          fetchWeatherData(city),
+          fetchCurrentWeather(city)
+        ]);
+        
         setWeather(weatherData);
+        setCurrentWeatherData(currentData);
+        
+        // Set timezone from current weather data
+        if (currentData.timezone) {
+          setTimezone(currentData.timezone);
+        }
+        
       } catch (err) {
         setError('Failed to load weather');
         setModalError('City not found. Please try another city.');
@@ -68,12 +175,34 @@ const LandingPage = () => {
     if (city) fetchData();
   }, [city]);
 
+  // Update current weather based on time when weather data or time changes
+  useEffect(() => {
+    if (!weather || !weather.list || weather.list.length === 0) return;
+
+    const now = currentTime.getTime() / 1000; // Convert to Unix timestamp
+    const weatherList = weather.list;
+    
+    // Find the closest weather data to current time
+    let closestWeather = weatherList[0];
+    let minDiff = Math.abs(now - weatherList[0].dt);
+    
+    for (let i = 1; i < weatherList.length; i++) {
+      const diff = Math.abs(now - weatherList[i].dt);
+      if (diff < minDiff) {
+        minDiff = diff;
+        closestWeather = weatherList[i];
+      }
+    }
+    
+    setCurrentWeather(closestWeather);
+  }, [weather, currentTime]);
+
   // Fetch background image when weather changes
   useEffect(() => {
     async function fetchBg() {
       let keyword = 'weather';
-      if (weather) {
-        keyword = weather?.list[0]?.weather[0]?.description || 'weather';
+      if (currentWeather) {
+        keyword = currentWeather?.weather[0]?.description || 'weather';
       }
       try {
         const bgData = await fetchBackgroundImage(keyword);
@@ -82,8 +211,8 @@ const LandingPage = () => {
         setBgUrl('');
       }
     }
-    if (weather) fetchBg();
-  }, [weather]);
+    if (currentWeather) fetchBg();
+  }, [currentWeather]);
 
   useEffect(() => {
     if (showModal && searchInputRef.current) {
@@ -96,6 +225,94 @@ const LandingPage = () => {
     if (search.trim()) {
       setCity(search.trim());
       localStorage.setItem('selectedCity', search.trim());
+    }
+  };
+
+  // Format time based on city timezone
+  const formatTime = (date) => {
+    try {
+      if (timezone) {
+        const timezoneName = getTimezoneName(timezone);
+        return new Date(date).toLocaleTimeString('en-US', {
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: true,
+          timeZone: timezoneName
+        });
+      }
+      return date.toLocaleTimeString('en-US', {
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: true
+      });
+    } catch (error) {
+      // Fallback to local time if timezone conversion fails
+      return date.toLocaleTimeString('en-US', {
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: true
+      });
+    }
+  };
+
+  const formatDate = (date) => {
+    try {
+      if (timezone) {
+        const timezoneName = getTimezoneName(timezone);
+        return new Date(date).toLocaleDateString('en-US', {
+          weekday: 'long',
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric',
+          timeZone: timezoneName
+        });
+      }
+      return date.toLocaleDateString('en-US', {
+        weekday: 'long',
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric'
+      });
+    } catch (error) {
+      // Fallback to local date if timezone conversion fails
+      return date.toLocaleDateString('en-US', {
+        weekday: 'long',
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric'
+      });
+    }
+  };
+
+  // Get city time in the city's timezone
+  const getCityTime = () => {
+    try {
+      if (timezone && cityTime) {
+        return cityTime.toLocaleTimeString('en-US', {
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: true
+        });
+      }
+      return formatTime(currentTime);
+    } catch (error) {
+      return formatTime(currentTime);
+    }
+  };
+
+  const getCityDate = () => {
+    try {
+      if (timezone && cityTime) {
+        return cityTime.toLocaleDateString('en-US', {
+          weekday: 'long',
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric'
+        });
+      }
+      return formatDate(currentTime);
+    } catch (error) {
+      return formatDate(currentTime);
     }
   };
 
@@ -151,8 +368,11 @@ const LandingPage = () => {
   // Helper to get today's, hourly, and 5-day forecast
   const getForecasts = () => {
     if (!weather) return { today: null, hourly: [], daily: [] };
-    const today = weather.list[0];
+    
+    // Use current weather data if available, otherwise use forecast data
+    const today = currentWeatherData || currentWeather || weather.list[0];
     const hourly = weather.list.slice(0, 6); // next 6 x 3h = 18h
+    
     // Group by day
     const days = {};
     weather.list.forEach(item => {
@@ -191,13 +411,6 @@ const LandingPage = () => {
       {showModal && (
         <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setShowModal(false)}>
           <div className={`relative ${isDark ? 'bg-gray': 'bg-white'} rounded-sm shadow-2xl p-6 w-full max-w-md ${isDark ? 'bg-gray-900 text-white' : 'bg-white text-gray-900'}`} onClick={e => e.stopPropagation()}>
-            {/* <button
-              className="absolute top-0 right-2 text-lg font-bold hover:opacity-70 focus:outline-none"
-              onClick={() => setShowModal(false)}
-              title="Close"
-            >
-              ×
-            </button> */}
             {modalError && (
               <div className="mb-4 text-sm text-red-500 font-semibold text-center">{modalError}</div>
             )}
@@ -224,9 +437,6 @@ const LandingPage = () => {
                   suggestionHighlighted: 'bg-primary/20',
                 }}
               />
-               {/* <button type="submit" className={`px-3 py-1 rounded-sm font-semibold ${isDark ? 'bg-gray-700 text-white' : 'bg-blue-500 text-white'} hover:opacity-80 transition`}>
-                  Apply
-               </button> */}
             </form>
           </div>
         </div>
@@ -245,11 +455,18 @@ const LandingPage = () => {
         </button>
       <div className={`absolute inset-0 ${isDark ? 'bg-black/40' : 'bg-white/40'} z-0`} />
       <div className={`relative main_card  mt-18 md:mt-0 z-10 w-full max-w-4xl mx-auto p-8 md:rounded-3xl shadow-2xl backdrop-blur-sm ${isDark ? 'bg-black/40 text-white' : 'bg-white/40 text-gray-900'} flex flex-col md:flex-row gap-8`}>
-        {/* Search Bar with Autosuggest */}
-        
         {/* Left: Main Weather */}
         <div className="flex-1 flex flex-col justify-between min-w-[250px]">
           <div>
+            {/* Current Time and Date */}
+            <div className={`text-sm mb-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+              <div className="font-semibold">{getCityTime()}</div>
+              <div className="text-xs">{getCityDate()}</div>
+              {timezone && (
+                <div className="text-xs opacity-70">Local time in {city}</div>
+              )}
+            </div>
+            
             {/* City Info */}
             {weather && weather.city && (
               <div className={`text-xs mb-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
@@ -283,7 +500,7 @@ const LandingPage = () => {
                   </button>
                 </div>
                 <div className="text-sm">
-                  {today.dt_txt.slice(11, 16)} | H:{Math.round(today.main.temp_max)}° L:{Math.round(today.main.temp_min)}°
+                  {getCityTime()} | H:{Math.round(today.main.temp_max)}° L:{Math.round(today.main.temp_min)}°
                 </div>
                 {/* More Weather Details */}
                 <div className={`mt-4 text-xs space-y-1 ${isDark ? 'text-gray-200' : 'text-gray-800'}`}>
@@ -291,6 +508,10 @@ const LandingPage = () => {
                   <div>Humidity: <span className="font-semibold">{today.main.humidity}%</span></div>
                   <div>Wind: <span className="font-semibold">{today.wind.speed} m/s</span></div>
                   <div>Pressure: <span className="font-semibold">{today.main.pressure} hPa</span></div>
+                  <div>Updated: <span className="font-semibold">{timezone ? new Date(today.dt * 1000).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: getTimezoneName(timezone) }) : formatTime(new Date(today.dt * 1000))}</span></div>
+                  {currentWeatherData && (
+                    <div>Real-time: <span className="font-semibold text-green-500">✓</span></div>
+                  )}
                 </div>
                 {/* Footer under weather details */}
                 <div className="mt-4 text-xs text-left text-gray-400 flex items-center gap-2">
@@ -312,11 +533,18 @@ const LandingPage = () => {
         <div className="flex-1 flex flex-col gap-6">
           {/* Hourly Forecast */}
           <div className={`${isDark ? 'bg-black/60 text-white' : 'bg-gray/10 text-gray-900'} backdrop-blur-sm  rounded-xl p-4 mb-2`}>
-            <div className="text-sm mb-2">Thunderstorms expected around {hourly[0]?.dt_txt?.slice(11, 16) || '--:--'}</div>
+            <div className="text-sm mb-2">
+              {today?.weather[0]?.main === 'Thunderstorm' 
+                ? `Thunderstorms expected around ${hourly[0] ? (timezone ? new Date(hourly[0].dt * 1000).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: getTimezoneName(timezone) }) : hourly[0].dt_txt.slice(11, 16)) : '--:--'}`
+                : `Weather updates every 3 hours`
+              }
+            </div>
             <div className="flex items-center gap-4 overflow-x-auto">
               {hourly.map((h, i) => (
                 <div key={i} className="flex flex-col items-center min-w-[48px]">
-                  <span className={`text-xs ${i === 0 ? 'text-primary' : ''}`}>{i === 0 ? 'Now' : h.dt_txt.slice(11, 13)}</span>
+                  <span className={`text-xs ${i === 0 ? 'text-primary' : ''}`}>
+                    {i === 0 ? 'Now' : (timezone ? new Date(h.dt * 1000).toLocaleTimeString('en-US', { hour: '2-digit', hour12: false, timeZone: getTimezoneName(timezone) }) : h.dt_txt.slice(11, 13))}
+                  </span>
                   <WeatherIcon icon={h.weather[0].icon} alt={h.weather[0].main} />
                   <span className="text-xs">{Math.round(h.main.temp)}°C</span>
                 </div>
