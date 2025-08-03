@@ -571,7 +571,7 @@ const LandingPage = () => {
             Theme saved!
           </div>
         )}
-      <div className={`absolute inset-0 ${isDark ? 'bg-black/40' : 'bg-white/40'} z-0`} />
+      <div className={`absolute inset-0 ${isDark ? 'bg-black/60' : 'bg-white/60'} z-0`} />
       <div className={`relative main_card  mt-18 md:mt-0 z-10 w-full max-w-4xl mx-auto p-8 md:rounded-3xl shadow-2xl backdrop-blur-sm ${isDark ? 'bg-black/40 text-white' : 'bg-white/40 text-gray-900'} flex flex-col md:flex-row gap-8`}>
         {/* Left: Main Weather */}
         <div className="flex-1 flex flex-col justify-between min-w-[250px]">
