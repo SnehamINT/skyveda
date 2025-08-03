@@ -27,6 +27,7 @@ const LandingPage = () => {
   const [timezone, setTimezone] = useState(null);
   const [cityTime, setCityTime] = useState(new Date());
   const [currentBgSearch, setCurrentBgSearch] = useState('');
+  const [themeSaved, setThemeSaved] = useState(false);
   const debounceTimeout = useRef();
   const searchInputRef = useRef(null);
   const timeIntervalRef = useRef(null);
@@ -120,9 +121,29 @@ const LandingPage = () => {
     }
   }, [timezone]);
 
+  // Listen for system theme changes
+  useEffect(() => {
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+    
+    const handleThemeChange = (e) => {
+      // Only auto-update if user hasn't manually set a preference
+      const savedTheme = getFromLocalStorage('themeMode');
+      if (!savedTheme) {
+        setIsDark(e.matches);
+        saveToLocalStorage('themeMode', e.matches ? 'dark' : 'light');
+      }
+    };
+
+    mediaQuery.addEventListener('change', handleThemeChange);
+    
+    return () => {
+      mediaQuery.removeEventListener('change', handleThemeChange);
+    };
+  }, []);
+
   // On mount: detect city or use localStorage
   useEffect(() => {
-    const storedCity = localStorage.getItem('selectedCity');
+    const storedCity = getFromLocalStorage('selectedCity');
     if (storedCity) {
       setCity(storedCity);
       setSearch(storedCity);
@@ -134,13 +155,24 @@ const LandingPage = () => {
           const detectedCity = data.city || DEFAULT_CITY;
           setCity(detectedCity);
           setSearch(detectedCity);
-          localStorage.setItem('selectedCity', detectedCity);
+          saveToLocalStorage('selectedCity', detectedCity);
         })
         .catch(() => {
           setCity(DEFAULT_CITY);
           setSearch(DEFAULT_CITY);
-          localStorage.setItem('selectedCity', DEFAULT_CITY);
+          saveToLocalStorage('selectedCity', DEFAULT_CITY);
         });
+    }
+
+    // Load saved theme preference
+    const savedTheme = getFromLocalStorage('themeMode');
+    if (savedTheme) {
+      setIsDark(savedTheme === 'dark');
+    } else {
+      // Auto-detect theme based on system preference
+      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      setIsDark(prefersDark);
+      saveToLocalStorage('themeMode', prefersDark ? 'dark' : 'light');
     }
   }, []);
 
@@ -272,7 +304,7 @@ const LandingPage = () => {
     e.preventDefault();
     if (search.trim()) {
       setCity(search.trim());
-      localStorage.setItem('selectedCity', search.trim());
+      saveToLocalStorage('selectedCity', search.trim());
     }
   };
 
@@ -410,7 +442,7 @@ const LandingPage = () => {
   const onSuggestionSelected = (event, { suggestion }) => {
     setSearch(suggestion.displayName);
     setCity(suggestion.displayName);
-    localStorage.setItem('selectedCity', suggestion.displayName);
+    saveToLocalStorage('selectedCity', suggestion.displayName);
   };
 
   // Helper to get today's, hourly, and 5-day forecast
@@ -444,6 +476,28 @@ const LandingPage = () => {
   };
 
   const { today, hourly, daily } = getForecasts();
+
+  // Helper function to safely save to localStorage
+  const saveToLocalStorage = (key, value) => {
+    try {
+      localStorage.setItem(key, value);
+      return true;
+    } catch (error) {
+      console.warn('Failed to save to localStorage:', error);
+      return false;
+    }
+  };
+
+  // Helper function to safely get from localStorage
+  const getFromLocalStorage = (key, defaultValue = null) => {
+    try {
+      const item = localStorage.getItem(key);
+      return item !== null ? item : defaultValue;
+    } catch (error) {
+      console.warn('Failed to read from localStorage:', error);
+      return defaultValue;
+    }
+  };
 
   return (
     <div
@@ -497,11 +551,26 @@ const LandingPage = () => {
         {/* Day/Night Toggle */}
         <button
           className="absolute top-4 right-4 text-2xl focus:outline-none cursor-pointer z-99"
-          onClick={() => setIsDark((d) => !d)}
+          onClick={() => {
+            const newTheme = !isDark;
+            setIsDark(newTheme);
+            const saved = saveToLocalStorage('themeMode', newTheme ? 'dark' : 'light');
+            
+            // Show brief feedback only if save was successful
+            if (saved) {
+              setThemeSaved(true);
+              setTimeout(() => setThemeSaved(false), 1000);
+            }
+          }}
           title={isDark ? 'Switch to Day Mode' : 'Switch to Night Mode'}
         >
           {isDark ? '🌞' : '🌙'}
         </button>
+        {themeSaved && (
+          <div className="absolute top-12 right-4 text-xs bg-green-500 text-white px-2 py-1 rounded opacity-80">
+            Theme saved!
+          </div>
+        )}
       <div className={`absolute inset-0 ${isDark ? 'bg-black/40' : 'bg-white/40'} z-0`} />
       <div className={`relative main_card  mt-18 md:mt-0 z-10 w-full max-w-4xl mx-auto p-8 md:rounded-3xl shadow-2xl backdrop-blur-sm ${isDark ? 'bg-black/40 text-white' : 'bg-white/40 text-gray-900'} flex flex-col md:flex-row gap-8`}>
         {/* Left: Main Weather */}
