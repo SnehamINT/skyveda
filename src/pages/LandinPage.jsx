@@ -644,11 +644,11 @@ const LandingPage = () => {
                   </a>
                 </div>
                 {/* Background search indicator */}
-                {currentBgSearch && (
+                {/* {currentBgSearch && (
                   <div className="mt-2 text-xs text-gray-500 italic">
                     Background: "{currentBgSearch}"
                   </div>
-                )}
+                )} */}
               </>
             ) : null}
           </div>
