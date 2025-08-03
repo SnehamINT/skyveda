@@ -28,6 +28,7 @@ const LandingPage = () => {
   const [cityTime, setCityTime] = useState(new Date());
   const [currentBgSearch, setCurrentBgSearch] = useState('');
   const [themeSaved, setThemeSaved] = useState(false);
+  const [autoNightMode, setAutoNightMode] = useState(true); // Auto night mode toggle
   const debounceTimeout = useRef();
   const searchInputRef = useRef(null);
   const timeIntervalRef = useRef(null);
@@ -105,6 +106,17 @@ const LandingPage = () => {
     };
   }, [timezone]);
 
+  // Auto night mode effect - switches theme based on city time
+  useEffect(() => {
+    if (autoNightMode) {
+      const shouldBeDark = isNightTime();
+      if (isDark !== shouldBeDark) {
+        setIsDark(shouldBeDark);
+        saveToLocalStorage('themeMode', shouldBeDark ? 'dark' : 'light');
+      }
+    }
+  }, [cityTime, autoNightMode, isDark]);
+
   // Update city time when timezone changes
   useEffect(() => {
     if (timezone) {
@@ -173,6 +185,12 @@ const LandingPage = () => {
       const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
       setIsDark(prefersDark);
       saveToLocalStorage('themeMode', prefersDark ? 'dark' : 'light');
+    }
+
+    // Load auto night mode preference
+    const savedAutoNightMode = getFromLocalStorage('autoNightMode');
+    if (savedAutoNightMode !== null) {
+      setAutoNightMode(savedAutoNightMode === 'true');
     }
   }, []);
 
@@ -364,6 +382,22 @@ const LandingPage = () => {
     }
   };
 
+  // Check if it's night time (8 PM to 8 AM) in the city's timezone
+  const isNightTime = () => {
+    try {
+      if (timezone && cityTime) {
+        const hour = cityTime.getHours();
+        return hour >= 20 || hour < 8; // 8 PM to 8 AM
+      }
+      // Fallback to local time if city timezone not available
+      const hour = currentTime.getHours();
+      return hour >= 20 || hour < 8;
+    } catch (error) {
+      const hour = currentTime.getHours();
+      return hour >= 20 || hour < 8;
+    }
+  };
+
   // Get city time in the city's timezone
   const getCityTime = () => {
     try {
@@ -548,6 +582,28 @@ const LandingPage = () => {
           <img src="./logo-icon.png" alt="Logo Icon" />
           <h3 className='text-primary uppercase font-bold'>Skyveda</h3>
         </div>
+        {/* Auto Night Mode Toggle */}
+        <button
+          className={`absolute top-4 right-16 text-2xl focus:outline-none cursor-pointer z-99 ${autoNightMode ? 'opacity-100' : 'opacity-60'}`}
+          onClick={() => {
+            const newAutoMode = !autoNightMode;
+            setAutoNightMode(newAutoMode);
+            saveToLocalStorage('autoNightMode', newAutoMode.toString());
+            
+            // If turning on auto mode, immediately apply night mode if it's night time
+            if (newAutoMode) {
+              const shouldBeDark = isNightTime();
+              if (isDark !== shouldBeDark) {
+                setIsDark(shouldBeDark);
+                saveToLocalStorage('themeMode', shouldBeDark ? 'dark' : 'light');
+              }
+            }
+          }}
+          title={autoNightMode ? 'Disable Auto Night Mode (8PM-8AM)' : 'Enable Auto Night Mode (8PM-8AM)'}
+        >
+          {autoNightMode ? '🌃' : '🌅'}
+        </button>
+        
         {/* Day/Night Toggle */}
         <button
           className="absolute top-4 right-4 text-2xl focus:outline-none cursor-pointer z-99"
@@ -582,6 +638,12 @@ const LandingPage = () => {
               <div className="text-xs">{getCityDate()}</div>
               {timezone && (
                 <div className="text-xs opacity-70">Local time in {city}</div>
+              )}
+              {autoNightMode && (
+                <div className="text-xs opacity-70 flex items-center gap-1 mt-1">
+                  <span>{isNightTime() ? '🌙' : '☀️'}</span>
+                  <span>Auto night mode: {isNightTime() ? 'Night' : 'Day'}</span>
+                </div>
               )}
             </div>
             
