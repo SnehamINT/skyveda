@@ -584,7 +584,7 @@ const LandingPage = () => {
         </div>
         {/* Auto Night Mode Toggle */}
         <button
-          className={`absolute top-4 right-16 text-2xl focus:outline-none cursor-pointer z-99 ${autoNightMode ? 'opacity-100' : 'opacity-60'}`}
+          className={`absolute top-4 ${autoNightMode ? 'right-4' : 'right-16' } text-2xl focus:outline-none cursor-pointer z-99 ${autoNightMode ? 'opacity-100' : 'opacity-60'}`}
           onClick={() => {
             const newAutoMode = !autoNightMode;
             setAutoNightMode(newAutoMode);
@@ -605,6 +605,7 @@ const LandingPage = () => {
         </button>
         
         {/* Day/Night Toggle */}
+        {!autoNightMode && 
         <button
           className="absolute top-4 right-4 text-2xl focus:outline-none cursor-pointer z-99"
           onClick={() => {
@@ -622,6 +623,7 @@ const LandingPage = () => {
         >
           {isDark ? '🌞' : '🌙'}
         </button>
+        }
         {themeSaved && (
           <div className="absolute top-12 right-4 text-xs bg-green-500 text-white px-2 py-1 rounded opacity-80">
             Theme saved!
